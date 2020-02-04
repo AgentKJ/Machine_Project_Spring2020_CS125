@@ -36,6 +36,7 @@ import java.util.List;
 
 import edu.illinois.cs.cs125.spring2020.mp.logic.DefaultTargets;
 import edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils;
+import edu.illinois.cs.cs125.spring2020.mp.logic.TargetVisitChecker;
 
 /*
  * Welcome to the Machine Project app!
@@ -182,9 +183,12 @@ public final class GameActivity extends AppCompatActivity {
         // Remove some UI that gets in the way
         map.getUiSettings().setIndoorLevelPickerEnabled(false);
         map.getUiSettings().setMapToolbarEnabled(false);
-
         // Use the provided placeMarker function to add a marker at every target's location
         // HINT: onCreate initializes the relevant arrays (targetLats, targetLngs) for you
+        for (int i = 0; i < targetLngs.length; i++) {
+            placeMarker(targetLats[i], targetLngs[i]);
+        }
+
     }
 
     /**
@@ -201,7 +205,13 @@ public final class GameActivity extends AppCompatActivity {
         // HINT: To operate on the game state, use the three methods you implemented in TargetVisitChecker
         // You can call them by prefixing their names with "TargetVisitChecker." e.g. TargetVisitChecker.visitTarget
         // The arrays to operate on are targetLats, targetLngs, and path
-
+        int targetIndex = TargetVisitChecker.getVisitCandidate(targetLats, targetLngs, path,
+                latitude, longitude, PROXIMITY_THRESHOLD);
+        if (TargetVisitChecker.checkSnakeRule(targetLats, targetLngs, path, targetIndex)) {
+            TargetVisitChecker.visitTarget(path, targetIndex);
+            changeMarkerColor(latitude, longitude, CAPTURED_MARKER_HUE);
+            //addLine(latitude, longitude, targetLats[targetIndex], targetLngs[targetIndex], PLAYER_COLOR);
+        }
         // When the player gets within the PROXIMITY_THRESHOLD of a target, it should be captured and turned green
         // Sequential captures should create green connecting lines on the map
         // HINT: Use the provided changeMarkerColor and addLine functions to manipulate the map

@@ -66,7 +66,8 @@ public class TargetVisitChecker {
                                               final int range) {
         // HINT: To find the distance in meters between two locations, use a provided helper function:
         // LatLngUtils.distance(oneLatitude, oneLongitude, otherLatitude, otherLongitude)
-        return false;
+        return LatLngUtils.distance(currentLatitude, currentLongitude, latitudes[targetIndex],
+                longitudes[targetIndex]) < range;
     }
 
     /**
@@ -83,6 +84,11 @@ public class TargetVisitChecker {
      */
     public static boolean isTargetVisited(final int[] path, final int targetIndex) {
         // HINT: The user can capture targets in many different orders. Target #0 is not necessarily captured first.
+        for (int count = 0; count < path.length; count++) {
+            if (path[count] == targetIndex) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -108,6 +114,12 @@ public class TargetVisitChecker {
                                         final int range) {
         // HINT: Implement isTargetWithinRange and isTargetVisited (above) first.
         // Then you can call them in this function.
+        for (int count = 0; count < latitudes.length; count++) {
+            if (!isTargetVisited(path, count) && isTargetWithinRange(latitudes, longitudes, count,
+                    currentLatitude, currentLongitude, range)) {
+                return count;
+            }
+        }
         return -1;
     }
 
@@ -138,6 +150,28 @@ public class TargetVisitChecker {
         // HINT: To determine whether two lines cross, use a provided helper function:
         // LineCrossDetector.linesCross(oneStartLat, oneStartLng, oneEndLat, oneEndLng,
         //                              otherStartLat, otherStartLng, otherEndLat, otherEndLng)
+        if (path[0] == -1 || path[1] == -1 || path[2] == -1) {
+            return true;
+        }
+        int startingPoint = 0;
+        if (path[path.length - 1] != -1) {
+            return true;
+        } else {
+            for (int min = 0; min < path.length; min++) {
+                if (path[min] == -1) {
+                    startingPoint = min - 1;
+                    break;
+                }
+            }
+        }
+        for (int index = 0; index < startingPoint; index++) {
+            if (LineCrossDetector.linesCross(latitudes[path[index]], longitudes[path[index]],
+                    latitudes[path[index + 1]], longitudes[path[index + 1]],
+                    latitudes[path[startingPoint]], longitudes[path[startingPoint]],
+                    latitudes[tryVisit], longitudes[tryVisit])) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -151,6 +185,12 @@ public class TargetVisitChecker {
      * @return the index in the path array that was updated, or -1 if the path array was full
      */
     public static int visitTarget(final int[] path, final int targetIndex) {
+        for (int count = 0; count < path.length; count++) {
+            if (path[count] == -1) {
+                path[count] = targetIndex;
+                return count;
+            }
+        }
         return -1;
         // HINT: The return value of this function will be useful in GameActivity.
     }
