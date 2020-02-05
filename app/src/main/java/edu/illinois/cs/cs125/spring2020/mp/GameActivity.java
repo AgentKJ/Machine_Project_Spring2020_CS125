@@ -71,7 +71,7 @@ public final class GameActivity extends AppCompatActivity {
     private static final float REQUIRED_LOCATION_ACCURACY = 28f;
 
     /** How close the user has to be (in meters) to a target to capture it. */
-    private static final int PROXIMITY_THRESHOLD = 20;
+    private static final int PROXIMITY_THRESHOLD =  20;
 
     /** Hue of the markers showing captured target locations.
      * Note that this is ONLY the hue; markers don't allow specifying the RGB color like other map elements do. */
@@ -185,10 +185,9 @@ public final class GameActivity extends AppCompatActivity {
         map.getUiSettings().setMapToolbarEnabled(false);
         // Use the provided placeMarker function to add a marker at every target's location
         // HINT: onCreate initializes the relevant arrays (targetLats, targetLngs) for you
-        for (int i = 0; i < targetLngs.length; i++) {
-            placeMarker(targetLats[i], targetLngs[i]);
+        for (int count = 0; count < path.length; count++) {
+            placeMarker(targetLats[count], targetLngs[count]);
         }
-
     }
 
     /**
@@ -207,10 +206,16 @@ public final class GameActivity extends AppCompatActivity {
         // The arrays to operate on are targetLats, targetLngs, and path
         int targetIndex = TargetVisitChecker.getVisitCandidate(targetLats, targetLngs, path,
                 latitude, longitude, PROXIMITY_THRESHOLD);
+
         if (TargetVisitChecker.checkSnakeRule(targetLats, targetLngs, path, targetIndex)) {
-            TargetVisitChecker.visitTarget(path, targetIndex);
-            changeMarkerColor(latitude, longitude, CAPTURED_MARKER_HUE);
-            //addLine(latitude, longitude, targetLats[targetIndex], targetLngs[targetIndex], PLAYER_COLOR);
+            if (targetIndex != -1) {
+                changeMarkerColor(targetLats[targetIndex], targetLngs[targetIndex], CAPTURED_MARKER_HUE);
+                int toVisit = TargetVisitChecker.visitTarget(path, targetIndex);
+                if (toVisit != 0) {
+                    addLine(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]],
+                            targetLats[path[toVisit]], targetLngs[path[toVisit]], PLAYER_COLOR);
+                }
+            }
         }
         // When the player gets within the PROXIMITY_THRESHOLD of a target, it should be captured and turned green
         // Sequential captures should create green connecting lines on the map
