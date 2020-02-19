@@ -1,6 +1,12 @@
 package edu.illinois.cs.cs125.spring2020.mp.logic;
 
+//import android.graphics.Color;
+
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
+//import com.google.android.gms.maps.model.PolylineOptions;
+
+
 import static edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils.distance;
 
 /**
@@ -58,10 +64,15 @@ public class AreaDivider {
      * @return the boundaries of the cell
      */
     public com.google.android.gms.maps.model.LatLngBounds getCellBounds(final int x, final int y) {
-        if (x + y == 0) {
-            return null;
-        }
-        return null;
+        double lng = (east - west) / getXCells();
+        double xLng = west + lng * x;
+        double lat = (north - south) / getYCells();
+        double yLat = south + lat * y;
+        double xLngOne = west + lng * (x + 1);
+        double yLatOne = south + lat * (y + 1);
+        LatLng southwest = new LatLng(yLat, xLng);
+        LatLng northeast = new LatLng(yLatOne, xLngOne);
+        return new LatLngBounds(southwest, northeast);
     }
 
     /**
@@ -168,6 +179,21 @@ public class AreaDivider {
      * @param map the Google map to draw on
      */
     public void renderGrid(final com.google.android.gms.maps.GoogleMap map) {
-
+        double latSize = (north - south) / getYCells();
+        double lngSize = (east - west) / getXCells();
+        System.out.println("east = " + east);
+        System.out.println("west = " + west);
+        System.out.println("north = " + north);
+        System.out.println("south = " + south);
+        System.out.println("latsize = " + latSize);
+        /*for (double start = south; start <= north; start += latSize) {
+            map.addPolyline(new PolylineOptions().add(new LatLng(start, east), new LatLng(start, west))
+                    .color(Color.BLACK).width(12).zIndex(1));
+            System.out.println(start);
+        }
+        for (double start = west; start <= east; start += lngSize) {
+            map.addPolyline(new PolylineOptions().add(new LatLng(south, start), new LatLng(north, start))
+                    .color(Color.BLACK).width(12).zIndex(1));
+        }*/
     }
 }
