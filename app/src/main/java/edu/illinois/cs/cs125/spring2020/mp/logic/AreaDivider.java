@@ -1,10 +1,10 @@
 package edu.illinois.cs.cs125.spring2020.mp.logic;
 
-//import android.graphics.Color;
 
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
-//import com.google.android.gms.maps.model.PolylineOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
+import com.google.android.gms.maps.GoogleMap;
 
 
 import static edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils.distance;
@@ -53,6 +53,18 @@ public class AreaDivider {
         east = setEast;
         west = setWest;
         size = setCellSize;
+    }
+
+    /**
+     * addLine for renderGrid.
+     * @param start LatLng of the starting point.
+     * @param end LatLng of the ending point.
+     * @param map The map to be drawn on.
+     */
+    public void addLine(final LatLng start, final LatLng end, final GoogleMap map) {
+
+        PolylineOptions fill = new PolylineOptions().add(start, end);
+        map.addPolyline(fill);
     }
 
     /**
@@ -179,21 +191,19 @@ public class AreaDivider {
      * @param map the Google map to draw on
      */
     public void renderGrid(final com.google.android.gms.maps.GoogleMap map) {
-        double latSize = (north - south) / getYCells();
-        double lngSize = (east - west) / getXCells();
-        System.out.println("east = " + east);
-        System.out.println("west = " + west);
-        System.out.println("north = " + north);
-        System.out.println("south = " + south);
-        System.out.println("latsize = " + latSize);
-        /*for (double start = south; start <= north; start += latSize) {
-            map.addPolyline(new PolylineOptions().add(new LatLng(start, east), new LatLng(start, west))
-                    .color(Color.BLACK).width(12).zIndex(1));
-            System.out.println(start);
+        double xCellLength = (east - west) / getXCells();
+        double yCellLength = (north - south) / getYCells();
+
+        for (int i = 0; i <= getXCells(); i++) {
+            LatLng first = new LatLng(south, west + i * xCellLength);
+            LatLng second = new LatLng(north, west + i * xCellLength);
+            addLine(first, second, map);
         }
-        for (double start = west; start <= east; start += lngSize) {
-            map.addPolyline(new PolylineOptions().add(new LatLng(south, start), new LatLng(north, start))
-                    .color(Color.BLACK).width(12).zIndex(1));
-        }*/
+
+        for (int i = 0; i <= getYCells(); i++) {
+            LatLng first = new LatLng(south + i * yCellLength, west);
+            LatLng second = new LatLng(south + i * yCellLength, east);
+            addLine(first, second, map);
+        }
     }
 }
