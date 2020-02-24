@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import edu.illinois.cs.cs125.spring2020.mp.logic.AreaDivider;
 import edu.illinois.cs.cs125.spring2020.mp.logic.DefaultTargets;
 import edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils;
 import edu.illinois.cs.cs125.spring2020.mp.logic.TargetVisitChecker;
@@ -71,7 +72,7 @@ public final class GameActivity extends AppCompatActivity {
     private static final float REQUIRED_LOCATION_ACCURACY = 28f;
 
     /** How close the user has to be (in meters) to a target to capture it. */
-    private static final int PROXIMITY_THRESHOLD =  20;
+    private static int proximityThreshold;
 
     /** Hue of the markers showing captured target locations.
      * Note that this is ONLY the hue; markers don't allow specifying the RGB color like other map elements do. */
@@ -104,6 +105,14 @@ public final class GameActivity extends AppCompatActivity {
     /** The sequence of target indexes captured by the player (-1 if none). */
     private int[] path;
 
+
+
+    /** Instance of AreaDivider. */
+    private AreaDivider manager;
+
+    /** The array to check if the cell has been visited. */
+    private boolean[][] visited;
+
     /**
      * Called by the Android system when the activity is to be set up.
      * <p>
@@ -120,50 +129,67 @@ public final class GameActivity extends AppCompatActivity {
         setContentView(R.layout.activity_game);
         Log.v(TAG, "Created");
 
-        // Load the predefined targets
-        targetLats = DefaultTargets.getLatitudes(this);
-        targetLngs = DefaultTargets.getLongitudes(this);
-        path = new int[targetLats.length];
-        Arrays.fill(path, -1); // No targets visited initially
+        Intent intent = getIntent();
+        String mode = intent.getStringExtra("mode");
+        if (mode.equals("target")) {
+            proximityThreshold = intent.getIntExtra("proximityThreshold", 0);
+            // Load the predefined targets
+            targetLats = DefaultTargets.getLatitudes(this);
+            targetLngs = DefaultTargets.getLongitudes(this);
+            path = new int[targetLats.length];
+            Arrays.fill(path, -1); // No targets visited initially
+            // Start the process of getting a Google Maps object for the map
+            SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                    .findFragmentById(R.id.gameMap);
+            mapFragment.getMapAsync(view -> {
+                Log.v(TAG, "getMapAsync handler called");
 
-        // Start the process of getting a Google Maps object for the map
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.gameMap);
-        mapFragment.getMapAsync(view -> {
-            Log.v(TAG, "getMapAsync handler called");
+                // Save the newly obtained map
+                map = view;
+                setUpMap();
+            });
 
-            // Save the newly obtained map
-            map = view;
-            setUpMap();
-        });
+            // Prepare a handler that will be called when location updates are available
+            locationUpdateReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(final Context context, final Intent intent) {
+                    Location location = intent.getParcelableExtra(LocationListenerService.UPDATE_DATA_ID);
+                    if (map != null && location != null && location.hasAccuracy()
+                            && location.getAccuracy() < REQUIRED_LOCATION_ACCURACY) {
+                        ensureMapCentered(location);
+                        onLocationUpdate(location.getLatitude(), location.getLongitude());
+                    }
+                }
+            };
+            // Register (activate) it
+            LocalBroadcastManager.getInstance(this).registerReceiver(locationUpdateReceiver,
+                    new IntentFilter(LocationListenerService.UPDATE_ACTION));
 
-        // Prepare a handler that will be called when location updates are available
-        locationUpdateReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(final Context context, final Intent intent) {
-                Location location = intent.getParcelableExtra(LocationListenerService.UPDATE_DATA_ID);
-                if (map != null && location != null && location.hasAccuracy()
-                        && location.getAccuracy() < REQUIRED_LOCATION_ACCURACY) {
-                    ensureMapCentered(location);
-                    onLocationUpdate(location.getLatitude(), location.getLongitude());
+            // See if we still need the location permission
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // We don't have it yet - request it
+                ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 0);
+                Log.v(TAG, "Requested location permission");
+            } else {
+                // We do have it - activate the features that require location
+                Log.v(TAG, "Already had location permission");
+                hasLocationPermission = true;
+                startLocationWatching();
+            }
+        } else if (mode.equals("area")) {
+            double setNorth = intent.getDoubleExtra("areaNorth", 0.0);
+            double setEast = intent.getDoubleExtra("areaEast", 0.0);
+            double setSouth = intent.getDoubleExtra("areaSouth", 0.0);
+            double setWest = intent.getDoubleExtra("areaWest", 0.0);
+            int setCellSize = intent.getIntExtra("cellSize", 0);
+            manager = new AreaDivider(setNorth, setEast, setSouth, setWest, setCellSize);
+            visited = new boolean[manager.getXCells()][manager.getYCells()];
+            for (int i = 0; i < manager.getXCells(); i++) {
+                for (int j = 0; j < manager.getYCells(); j++) {
+                    visited[i][j] = false;
                 }
             }
-        };
-        // Register (activate) it
-        LocalBroadcastManager.getInstance(this).registerReceiver(locationUpdateReceiver,
-                new IntentFilter(LocationListenerService.UPDATE_ACTION));
-
-        // See if we still need the location permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            // We don't have it yet - request it
-            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 0);
-            Log.v(TAG, "Requested location permission");
-        } else {
-            // We do have it - activate the features that require location
-            Log.v(TAG, "Already had location permission");
-            hasLocationPermission = true;
-            startLocationWatching();
         }
     }
 
@@ -183,10 +209,17 @@ public final class GameActivity extends AppCompatActivity {
         // Remove some UI that gets in the way
         map.getUiSettings().setIndoorLevelPickerEnabled(false);
         map.getUiSettings().setMapToolbarEnabled(false);
-        // Use the provided placeMarker function to add a marker at every target's location
-        // HINT: onCreate initializes the relevant arrays (targetLats, targetLngs) for you
-        for (int count = 0; count < path.length; count++) {
-            placeMarker(targetLats[count], targetLngs[count]);
+
+        Intent intent = getIntent();
+        String mode = intent.getStringExtra("mode");
+        if (mode.equals("area")) {
+            manager.renderGrid(map);
+        } else if (mode.equals("target")) {
+            // Use the provided placeMarker function to add a marker at every target's location
+            // HINT: onCreate initializes the relevant arrays (targetLats, targetLngs) for you
+            for (int count = 0; count < path.length; count++) {
+                placeMarker(targetLats[count], targetLngs[count]);
+            }
         }
     }
 
@@ -201,26 +234,49 @@ public final class GameActivity extends AppCompatActivity {
     public void onLocationUpdate(final double latitude, final double longitude) {
         // This function is responsible for updating the game state and map according to the user's movements
 
-        // HINT: To operate on the game state, use the three methods you implemented in TargetVisitChecker
-        // You can call them by prefixing their names with "TargetVisitChecker." e.g. TargetVisitChecker.visitTarget
-        // The arrays to operate on are targetLats, targetLngs, and path
-        int targetIndex = TargetVisitChecker.getVisitCandidate(targetLats, targetLngs, path,
-                latitude, longitude, PROXIMITY_THRESHOLD);
+        Intent intent = getIntent();
+        String mode = intent.getStringExtra("mode");
+        if (mode.equals("target")) {
+            // HINT: To operate on the game state, use the three methods you implemented in TargetVisitChecker
+            // You can call them by prefixing their names with "TargetVisitChecker." e.g. TargetVisitChecker.visitTarget
+            // The arrays to operate on are targetLats, targetLngs, and path
 
-        if (TargetVisitChecker.checkSnakeRule(targetLats, targetLngs, path, targetIndex)) {
-            if (targetIndex != -1) {
-                changeMarkerColor(targetLats[targetIndex], targetLngs[targetIndex], CAPTURED_MARKER_HUE);
-                int toVisit = TargetVisitChecker.visitTarget(path, targetIndex);
-                if (toVisit != 0) {
-                    addLine(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]],
-                            targetLats[path[toVisit]], targetLngs[path[toVisit]], PLAYER_COLOR);
+            int targetIndex = TargetVisitChecker.getVisitCandidate(targetLats, targetLngs, path,
+                    latitude, longitude, proximityThreshold);
+
+            if (TargetVisitChecker.checkSnakeRule(targetLats, targetLngs, path, targetIndex)) {
+                if (targetIndex != -1) {
+                    changeMarkerColor(targetLats[targetIndex], targetLngs[targetIndex], CAPTURED_MARKER_HUE);
+                    int toVisit = TargetVisitChecker.visitTarget(path, targetIndex);
+                    if (toVisit != 0) {
+                        addLine(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]],
+                                targetLats[path[toVisit]], targetLngs[path[toVisit]], PLAYER_COLOR);
+                    }
                 }
             }
-        }
-        // When the player gets within the PROXIMITY_THRESHOLD of a target, it should be captured and turned green
-        // Sequential captures should create green connecting lines on the map
-        // HINT: Use the provided changeMarkerColor and addLine functions to manipulate the map
-        // HINT: Use the provided color constants near the top of this file as arguments to those functions
+            // When the player gets within the PROXIMITY_THRESHOLD of a target, it should be captured and turned green
+            // Sequential captures should create green connecting lines on the map
+            // HINT: Use the provided changeMarkerColor and addLine functions to manipulate the map
+            // HINT: Use the provided color constants near the top of this file as arguments to those functions
+        } /*else if (mode == "area") {
+            LatLng location = new LatLng(latitude, longitude);
+            int xIndex = manager.getXIndex(location);
+            int yIndex = manager.getYIndex(location);
+            boolean test = false;
+            if (!visited[xIndex - 1][yIndex - 1]) {
+                for (int i = 0; i < visited.length; i++) {
+                    for (int j = 0; j < visited[i].length; j++) {
+                        if (visited[i][j]) {
+                            if ()
+                        }
+                    }
+                }
+            }
+
+            if (!visited[xIndex][yIndex]) {
+
+            }
+        }*/
     }
 
     /**
