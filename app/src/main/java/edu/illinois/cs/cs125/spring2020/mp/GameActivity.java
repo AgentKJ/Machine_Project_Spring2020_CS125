@@ -28,6 +28,7 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
 import java.util.ArrayList;
@@ -38,6 +39,7 @@ import edu.illinois.cs.cs125.spring2020.mp.logic.AreaDivider;
 import edu.illinois.cs.cs125.spring2020.mp.logic.DefaultTargets;
 import edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils;
 import edu.illinois.cs.cs125.spring2020.mp.logic.TargetVisitChecker;
+
 
 /*
  * Welcome to the Machine Project app!
@@ -113,6 +115,12 @@ public final class GameActivity extends AppCompatActivity {
     /** The array to check if the cell has been visited. */
     private boolean[][] visited;
 
+    /** The x index of the last cell. */
+    private int lastVisitedXIndex;
+
+    /** The y index of the last cell. */
+    private int lastVisitedYIndex;
+
     /**
      * Called by the Android system when the activity is to be set up.
      * <p>
@@ -128,6 +136,46 @@ public final class GameActivity extends AppCompatActivity {
         // Load the UI from a layout resource
         setContentView(R.layout.activity_game);
         Log.v(TAG, "Created");
+        // Start the process of getting a Google Maps object for the map
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.gameMap);
+        mapFragment.getMapAsync(view -> {
+            Log.v(TAG, "getMapAsync handler called");
+
+            // Save the newly obtained map
+            map = view;
+            setUpMap();
+        });
+
+        // Prepare a handler that will be called when location updates are available
+        locationUpdateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(final Context context, final Intent intent) {
+                Location location = intent.getParcelableExtra(LocationListenerService.UPDATE_DATA_ID);
+                if (map != null && location != null && location.hasAccuracy()
+                        && location.getAccuracy() < REQUIRED_LOCATION_ACCURACY) {
+                    ensureMapCentered(location);
+                    onLocationUpdate(location.getLatitude(), location.getLongitude());
+                }
+            }
+        };
+        // Register (activate) it
+        LocalBroadcastManager.getInstance(this).registerReceiver(locationUpdateReceiver,
+                new IntentFilter(LocationListenerService.UPDATE_ACTION));
+
+        // See if we still need the location permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            // We don't have it yet - request it
+            // We don't have it yet - request it
+            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 0);
+            Log.v(TAG, "Requested location permission");
+        } else {
+            // We do have it - activate the features that require location
+            Log.v(TAG, "Already had location permission");
+            hasLocationPermission = true;
+            startLocationWatching();
+        }
 
         Intent intent = getIntent();
         String mode = intent.getStringExtra("mode");
@@ -138,45 +186,7 @@ public final class GameActivity extends AppCompatActivity {
             targetLngs = DefaultTargets.getLongitudes(this);
             path = new int[targetLats.length];
             Arrays.fill(path, -1); // No targets visited initially
-            // Start the process of getting a Google Maps object for the map
-            SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                    .findFragmentById(R.id.gameMap);
-            mapFragment.getMapAsync(view -> {
-                Log.v(TAG, "getMapAsync handler called");
 
-                // Save the newly obtained map
-                map = view;
-                setUpMap();
-            });
-
-            // Prepare a handler that will be called when location updates are available
-            locationUpdateReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(final Context context, final Intent intent) {
-                    Location location = intent.getParcelableExtra(LocationListenerService.UPDATE_DATA_ID);
-                    if (map != null && location != null && location.hasAccuracy()
-                            && location.getAccuracy() < REQUIRED_LOCATION_ACCURACY) {
-                        ensureMapCentered(location);
-                        onLocationUpdate(location.getLatitude(), location.getLongitude());
-                    }
-                }
-            };
-            // Register (activate) it
-            LocalBroadcastManager.getInstance(this).registerReceiver(locationUpdateReceiver,
-                    new IntentFilter(LocationListenerService.UPDATE_ACTION));
-
-            // See if we still need the location permission
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                    != PackageManager.PERMISSION_GRANTED) {
-                // We don't have it yet - request it
-                ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 0);
-                Log.v(TAG, "Requested location permission");
-            } else {
-                // We do have it - activate the features that require location
-                Log.v(TAG, "Already had location permission");
-                hasLocationPermission = true;
-                startLocationWatching();
-            }
         } else if (mode.equals("area")) {
             double setNorth = intent.getDoubleExtra("areaNorth", 0.0);
             double setEast = intent.getDoubleExtra("areaEast", 0.0);
@@ -258,26 +268,82 @@ public final class GameActivity extends AppCompatActivity {
             // Sequential captures should create green connecting lines on the map
             // HINT: Use the provided changeMarkerColor and addLine functions to manipulate the map
             // HINT: Use the provided color constants near the top of this file as arguments to those functions
-        } /*else if (mode == "area") {
-            LatLng location = new LatLng(latitude, longitude);
-            int xIndex = manager.getXIndex(location);
-            int yIndex = manager.getYIndex(location);
-            boolean test = false;
-            if (!visited[xIndex - 1][yIndex - 1]) {
-                for (int i = 0; i < visited.length; i++) {
-                    for (int j = 0; j < visited[i].length; j++) {
-                        if (visited[i][j]) {
-                            if ()
-                        }
+        } else if (mode.equals("area")) {
+            int xIndex = manager.getXIndex(new LatLng(latitude, longitude));
+            int yIndex = manager.getYIndex(new LatLng(latitude, longitude));
+            double north = intent.getDoubleExtra("areaNorth", 0);
+            double south = intent.getDoubleExtra("areaSouth", 0);
+            double east = intent.getDoubleExtra("areaEast", 0);
+            double west = intent.getDoubleExtra("areaWest", 0);
+            if (latitude <= north && latitude >= south && longitude >= west && longitude <= east) {
+                double xLength = (east - west) / manager.getXCells();
+                double yLength = (north - south) / manager.getYCells();
+                double cellWest = west + xLength * xIndex;
+                double cellEast = west + xLength * (xIndex + 1);
+                double cellSouth = south + yLength * yIndex;
+                double cellNorth = south + yLength * (yIndex + 1);
+                // Check if the cell has been visited.
+                if (!visited[xIndex][yIndex]) {
+                    // Check if it is the first cell to be visit.
+                    if (checkFirst()) {
+                        PolygonOptions fill = new PolygonOptions().add(new LatLng(cellSouth, cellWest),
+                                new LatLng(cellNorth, cellWest),
+                                new LatLng(cellNorth, cellEast),
+                                new LatLng(cellSouth, cellEast),
+                                new LatLng(cellSouth, cellWest)).fillColor(PLAYER_COLOR);
+                        map.addPolygon(fill);
+                        visited[xIndex][yIndex] = true;
+                        lastVisitedXIndex = xIndex;
+                        lastVisitedYIndex = yIndex;
+                    } else if ((checkNeighbor(xIndex, yIndex, lastVisitedXIndex, lastVisitedYIndex))) {
+                        PolygonOptions fill = new PolygonOptions().add(new LatLng(cellSouth, cellWest),
+                                new LatLng(cellNorth, cellWest),
+                                new LatLng(cellNorth, cellEast),
+                                new LatLng(cellSouth, cellEast),
+                                new LatLng(cellSouth, cellWest)).fillColor(PLAYER_COLOR);
+                        map.addPolygon(fill);
+                        visited[xIndex][yIndex] = true;
+                        lastVisitedXIndex = xIndex;
+                        lastVisitedYIndex = yIndex;
                     }
                 }
             }
-
-            if (!visited[xIndex][yIndex]) {
-
-            }
-        }*/
+        }
     }
+
+    /**
+     * Check if any cell has been visited.
+     * @return False if no cell has been captured. True otherwise.
+     */
+    private boolean checkFirst() {
+        //System.out.println("x = " + x + ", y = " + y);
+        //System.out.println("x cells : " + manager.getXCells() + ", y cells : " + manager.getYCells());
+        for (int i = 0; i < manager.getXCells(); i++) {
+            for (int j = 0; j < manager.getYCells(); j++) {
+                if (visited[i][j]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check if any of its surrounding cells has been visited.
+     * @param x The x index of the current cell.
+     * @param y The y index of the current cell.
+     * @param lastX The x index of the last visited cell.
+     * @param lastY The y index of the last visited cell.
+     * @return True if the new cell shares one side with the most recently captured cell.
+     */
+    private boolean checkNeighbor(final int x, final int y, final int lastX, final int lastY) {
+        return (x != manager.getXCells() - 1 && lastX == x + 1 && lastY == y)
+                || (x != 0 && lastX == x - 1 && lastY == y)
+                || (y != manager.getYCells() - 1 && lastY == y + 1 && lastX == x)
+                || (y != 0 && lastY == y - 1 && lastX == x);
+    }
+
+
 
     /**
      * Places a marker on the map at the specified coordinates.
