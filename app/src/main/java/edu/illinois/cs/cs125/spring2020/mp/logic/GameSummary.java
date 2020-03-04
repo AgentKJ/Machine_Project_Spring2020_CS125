@@ -2,6 +2,10 @@ package edu.illinois.cs.cs125.spring2020.mp.logic;
 
 import android.content.Context;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
 /**
  * GameSummary.class.
  */
@@ -19,19 +23,25 @@ public class GameSummary {
      */
     private String owner;
     /**
-     * PlayerRole.
+     * State.
      */
-    private String playerRole;
+    private int gameState;
+    /**
+     * Array of the players.
+     */
+    private JsonArray players;
 
     /**
      * Creates a game summary from JSON from the server.
      * @param infoFromServer one object from the array in the /games response
      */
     public GameSummary(final com.google.gson.JsonObject infoFromServer) {
-        id = infoFromServer.get("ID").getAsString();
+        id = infoFromServer.get("id").getAsString();
         mode = infoFromServer.get("mode").getAsString();
         owner = infoFromServer.get("owner").getAsString();
-        playerRole = infoFromServer.get("player_role").getAsString();
+        players = infoFromServer.get("players").getAsJsonArray();
+        gameState = infoFromServer.get("state").getAsInt();
+
     }
 
     /**
@@ -65,7 +75,25 @@ public class GameSummary {
      * @return the human-readable team/role name of the user in this game
      */
     public String getPlayerRole(final String userEmail, final Context context) {
-        return playerRole;
+        int team = 0;
+        for (JsonElement d : players) {
+            JsonObject player = d.getAsJsonObject();
+            String emailOfThisPlayer = player.get("email").getAsString();
+            if (userEmail.equals(emailOfThisPlayer)) {
+                team = player.get("team").getAsInt();
+            }
+        }
+        if (team == TeamID.OBSERVER) {
+            return "Observer";
+        } else if (team == TeamID.TEAM_RED) {
+            return "Red";
+        } else if (team == TeamID.TEAM_YELLOW) {
+            return "Yellow";
+        } else if (team == TeamID.TEAM_GREEN) {
+            return "Green";
+        } else {
+            return "Blue";
+        }
     }
 
     /**
@@ -74,7 +102,20 @@ public class GameSummary {
      * @return whether the user is invited to this game
      */
     public boolean isInvitation(final String userEmail) {
-        return false;
+        int currentPlayerState = 0;
+        JsonObject player;
+        for (JsonElement d : players) {
+            player = d.getAsJsonObject();
+            String emailOfThisPlayer = player.get("email").getAsString();
+            if (userEmail.equals(emailOfThisPlayer)) {
+                currentPlayerState = player.get("state").getAsInt();
+            }
+        }
+
+        return !((currentPlayerState == PlayerStateID.ACCEPTED)
+                || (gameState == GameStateID.RUNNING && currentPlayerState == PlayerStateID.PLAYING)
+                || (gameState == GameStateID.PAUSED && currentPlayerState == PlayerStateID.PLAYING)
+                || (gameState == GameStateID.ENDED && currentPlayerState == PlayerStateID.INVITED));
     }
 
     /**
@@ -84,7 +125,18 @@ public class GameSummary {
      * @return whether this game is ongoing for the user
      */
     public boolean isOngoing(final String userEmail) {
-        return false;
+        int currentPlayerState = 0;
+        JsonObject player;
+        for (JsonElement d : players) {
+            player = d.getAsJsonObject();
+            String emailOfThisPlayer = player.get("email").getAsString();
+            if (userEmail.equals(emailOfThisPlayer)) {
+                currentPlayerState = player.get("state").getAsInt();
+            }
+        }
+
+        return !((currentPlayerState == PlayerStateID.INVITED)
+                || (gameState == GameStateID.ENDED && currentPlayerState == PlayerStateID.ACCEPTED));
     }
 
 }
