@@ -87,9 +87,7 @@ public class LaunchActivity extends AppCompatActivity {
                 // Otherwise check response.getError().getErrorCode() and handle the error.
                 setContentView(R.layout.activity_launch);
                 Button loginButton = findViewById(R.id.goLogin);
-                loginButton.setOnClickListener((final View view) -> {
-                    createSignInIntent();
-                });
+                loginButton.setOnClickListener((final View view) -> createSignInIntent());
             }
         }
     }

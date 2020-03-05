@@ -106,6 +106,11 @@ public final class MainActivity extends AppCompatActivity {
                 ongoingLayout.addView(chunk);
                 // Get buttons specific to ongoing games
                 Button enter = chunk.findViewById(R.id.enterGame);
+                Intent intent = new Intent(this, GameActivity.class);
+                intent.putExtra("game", gameId);
+                enter.setOnClickListener((final View view) ->
+                        startActivity(intent));
+
                 Button leave = chunk.findViewById(R.id.leaveGame);
                 // The Leave button should be gone if the user owns the game
                 if (gameOwner.equals(myEmail)) {
@@ -132,5 +137,9 @@ public final class MainActivity extends AppCompatActivity {
             infoLabel.setText(getResources().getString(R.string.game_role, myRole, gameMode));
         }
     }
+
+
+
+
 
 }
