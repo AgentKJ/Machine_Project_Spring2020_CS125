@@ -10,6 +10,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.android.volley.Request;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -112,6 +113,20 @@ public final class MainActivity extends AppCompatActivity {
                         startActivity(intent));
 
                 Button leave = chunk.findViewById(R.id.leaveGame);
+                MainActivity test = this;
+                leave.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(final View view) {
+                        WebApi.startRequest(test, WebApi.API_BASE + "/games/" + gameId + "/leave",
+                                Request.Method.POST, null, response -> {
+                            // response code handler similar to a GET request
+                                connect();
+                            }, error -> {
+
+                            });
+                    }
+                });
+
                 // The Leave button should be gone if the user owns the game
                 if (gameOwner.equals(myEmail)) {
                     leave.setVisibility(View.GONE);
@@ -125,6 +140,33 @@ public final class MainActivity extends AppCompatActivity {
                 // Add it to the invitations list
                 invitationsLayout.addView(chunk);
                 // Get buttons specific to invitations?
+                Button decline = chunk.findViewById(R.id.declineInvite);
+                MainActivity test = this;
+                decline.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(final View view) {
+                        WebApi.startRequest(test, WebApi.API_BASE + "/games/" + gameId
+                                + "/decline", Request.Method.POST, null, response -> {
+                            // response code handler similar to a GET request
+                                connect();
+                            }, error -> {
+                            });
+                    }
+                });
+                Button accept = chunk.findViewById(R.id.acceptInvite);
+                accept.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(final View view) {
+                        WebApi.startRequest(test, WebApi.API_BASE + "/games/" + gameId
+                                + "/accept", Request.Method.POST, null, response -> {
+                            // response code handler similar to a GET request
+                                connect();
+                            }, error -> {
+
+                            });
+                    }
+                });
+
             } else {
                 // Avoid the label-setting code below, since no chunk was created
                 continue;
