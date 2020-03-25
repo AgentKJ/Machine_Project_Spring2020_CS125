@@ -10,6 +10,7 @@ import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -61,7 +62,29 @@ public final class NewGameActivity extends AppCompatActivity {
         setContentView(R.layout.activity_new_game); // Loads the UI, now findViewById can work
         setTitle(R.string.create_game);
 
+        // Suppose modeGroup is a RadioGroup variable (maybe an instance variable?)
         modeGroup = findViewById(R.id.gameModeGroup);
+        LinearLayout modeArea = findViewById(R.id.areaSettings);
+        LinearLayout modeTarget = findViewById(R.id.targetSettings);
+        modeArea.setVisibility(View.GONE);
+        modeTarget.setVisibility(View.GONE);
+
+        modeGroup.setOnCheckedChangeListener((unused, checkedId) -> {
+            // checkedId is the R.id constant of the currently checked RadioButton
+            // Your code here: make only the selected mode's settings group visible
+            RadioButton target = findViewById(R.id.targetModeOption);
+            RadioButton area = findViewById(R.id.areaModeOption);
+            target.setOnClickListener((final View view) -> {
+                    modeArea.setVisibility(View.GONE);
+                    modeTarget.setVisibility(View.VISIBLE);
+                }
+            );
+            area.setOnClickListener((final View view) -> {
+                    modeTarget.setVisibility(View.GONE);
+                    modeArea.setVisibility(View.VISIBLE);
+                }
+            );
+        });
 
         // Register button click handlers on the add-invitee and create-game buttons
         findViewById(R.id.addInvitee).setOnClickListener(unused -> addInvitee());
