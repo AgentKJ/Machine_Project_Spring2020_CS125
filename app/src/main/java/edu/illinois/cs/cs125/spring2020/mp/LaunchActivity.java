@@ -9,7 +9,6 @@ import android.widget.Button;
 
 import com.firebase.ui.auth.AuthUI;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
 
 import java.util.Collections;
 import java.util.List;
@@ -77,7 +76,6 @@ public class LaunchActivity extends AppCompatActivity {
 
             if (FirebaseAuth.getInstance().getCurrentUser() != null) {
                 // Successfully signed in
-                FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
                 // Launch MainActivity
                 Intent intent = new Intent(this, MainActivity.class);
                 startActivity(intent);

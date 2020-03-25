@@ -259,8 +259,9 @@ public final class GameActivity extends AppCompatActivity {
                     changeMarkerColor(targetLats[targetIndex], targetLngs[targetIndex], CAPTURED_MARKER_HUE);
                     int toVisit = TargetVisitChecker.visitTarget(path, targetIndex);
                     if (toVisit != 0) {
-                        addLine(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]],
-                                targetLats[path[toVisit]], targetLngs[path[toVisit]], PLAYER_COLOR);
+                        LatLng first = new LatLng(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]]);
+                        LatLng second = new LatLng(targetLats[path[toVisit]], targetLngs[path[toVisit]]);
+                        addLine(first, second, PLAYER_COLOR);
                     }
                 }
             }
@@ -367,19 +368,12 @@ public final class GameActivity extends AppCompatActivity {
 
     /**
      * Adds a colored line to the Google map.
-     * @param startLat the latitude of one endpoint of the line
-     * @param startLng the longitude of that endpoint
-     * @param endLat the latitude of the other endpoint of the line
-     * @param endLng the longitude of that other endpoint
+     * @param start LatLng of one endpoint of the line
+     * @param end LatLng of the other endpoint of the line
      * @param color the color to fill the line with
      */
     @VisibleForTesting
-    public void addLine(final double startLat, final double startLng,
-                        final double endLat, final double endLng, final int color) {
-        // Package the loose coordinates into LatLng objects usable by Google Maps
-        LatLng start = new LatLng(startLat, startLng);
-        LatLng end = new LatLng(endLat, endLng);
-
+    public void addLine(final LatLng start, final LatLng end, final int color) {
         // Configure and add a colored line
         final int lineThickness = 12;
         PolylineOptions fill = new PolylineOptions().add(start, end).color(color).width(lineThickness).zIndex(1);

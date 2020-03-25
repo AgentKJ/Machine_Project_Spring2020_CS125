@@ -112,10 +112,7 @@ public class GameSummary {
             }
         }
 
-        return !((currentPlayerState == PlayerStateID.ACCEPTED)
-                || (gameState == GameStateID.RUNNING && currentPlayerState == PlayerStateID.PLAYING)
-                || (gameState == GameStateID.PAUSED && currentPlayerState == PlayerStateID.PLAYING)
-                || (gameState == GameStateID.ENDED && currentPlayerState == PlayerStateID.INVITED));
+        return currentPlayerState == PlayerStateID.INVITED && gameState != GameStateID.ENDED;
     }
 
     /**
