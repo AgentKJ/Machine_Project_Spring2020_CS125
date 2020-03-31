@@ -1,5 +1,7 @@
 package edu.illinois.cs.cs125.spring2020.mp;
 
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Point;
 import androidx.appcompat.app.AppCompatActivity;
@@ -25,6 +27,8 @@ import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
@@ -47,7 +51,7 @@ public final class NewGameActivity extends AppCompatActivity {
     /** The Google Maps view used to set the area for area mode. */
     private GoogleMap areaMap;
 
-    /** The Google Maps view used to manage targets for area mode. */
+    /** The Google Maps view used to manage targets for target mode. */
     private GoogleMap targetsMap;
 
     /** Markers on the target map representing targets. */
@@ -55,6 +59,9 @@ public final class NewGameActivity extends AppCompatActivity {
 
     /** The group of radio buttons that allow setting the game mode. */
     private RadioGroup modeGroup;
+
+    /** Access int from inner class. */
+    private int mySelectedIndex = 0;
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -84,6 +91,79 @@ public final class NewGameActivity extends AppCompatActivity {
                     modeArea.setVisibility(View.VISIBLE);
                 }
             );
+        });
+
+        Button load = findViewById(R.id.loadPresetTargets);
+        load.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(final View view) {
+                WebApi.startRequest(NewGameActivity.this, WebApi.API_BASE + "/presets", response -> {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(NewGameActivity.this);
+                    View chunk = getLayoutInflater().inflate(R.layout.chunk_presets_list, null, false);
+                    builder.setView(chunk);
+                    RadioGroup group = chunk.findViewById(R.id.presetOptions);
+                    LinearLayout load = new LinearLayout(NewGameActivity.this);
+                    load.addView(chunk);
+                    RadioButton bt;
+                    AlertDialog dialog = builder.create();
+                    load.removeView(chunk);
+
+                    JsonArray presets = response.get("presets").getAsJsonArray();
+                    int count = 0;
+                    for (JsonElement j : presets) {
+                        JsonObject preset = j.getAsJsonObject();
+                        String name = preset.get("name").getAsString();
+                        bt = new RadioButton(NewGameActivity.this);
+                        bt.setText(name);
+                        bt.setTag(count);
+                        group.addView(bt);
+                        System.out.println("name : " + name);
+                        System.out.println("tag : " + bt.getTag());
+                        count++;
+
+                    }
+                    group.setOnCheckedChangeListener((final RadioGroup group1, final int checkedId) -> {
+                            RadioButton radioButton = (RadioButton) group.findViewById(checkedId);
+                            mySelectedIndex = (int) radioButton.getTag();
+                            System.out.println("selected : " + mySelectedIndex);
+                        }
+                    );
+                    builder.setPositiveButton("LOAD", new DialogInterface.OnClickListener() {
+                        public void onClick(final DialogInterface dialog, final int id) {
+                            targetsMap.clear();
+                            targets.clear();
+                            int newCount = 0;
+                            for (JsonElement j : presets) {
+                                    JsonObject preset = j.getAsJsonObject();
+                                    System.out.println("/" + preset.get("name").getAsString());
+                                    if (newCount == mySelectedIndex) {
+                                        JsonArray targetGroup = preset.get("targets").getAsJsonArray();
+                                        for (JsonElement a : targetGroup) {
+                                            JsonObject info = a.getAsJsonObject();
+                                            Marker marker = targetsMap.addMarker(new MarkerOptions().
+                                                    position(new LatLng(info.get("latitude").getAsDouble(),
+                                                            info.get("longitude").getAsDouble())));
+                                            targets.add(marker);
+                                        }
+                                    }
+                                    newCount++;
+                            }
+                        }
+                    }).setNegativeButton(R.string.cancel, new DialogInterface.OnClickListener() {
+                        public void onClick(final DialogInterface dialog, final int id) {
+                            // User cancelled the dialog
+                        }
+                    });
+                    builder.show();
+
+
+
+
+                }, error -> {
+
+                    });
+
+            }
         });
 
         // Register button click handlers on the add-invitee and create-game buttons
