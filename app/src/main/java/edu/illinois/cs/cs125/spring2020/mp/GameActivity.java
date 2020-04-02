@@ -79,6 +79,7 @@ public final class GameActivity extends AppCompatActivity {
     /** Whether permission has been granted to access the phone's exact location. */
     private boolean hasLocationPermission;
 
+
     /**
      * Called by the Android system when the activity is to be set up.
      * @param savedInstanceState information from the previously terminated instance (unused)
@@ -310,6 +311,12 @@ public final class GameActivity extends AppCompatActivity {
                 if (newState != GameStateID.ENDED) {
                     // Since the game isn't over yet, update the scores label
                     updateGameState(newState);
+                } else if (newState == GameStateID.ENDED) {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                    String[] teamNames = this.getResources().getStringArray(R.array.team_choices);
+                    builder.setMessage(teamNames[game.getWinningTeam()] + " wins");
+                    builder.setOnDismissListener(unused -> finish());
+                    builder.show();
                 }
                 // Near the end of the checkpoint, add an else branch to handle the end of the game
                 break;
