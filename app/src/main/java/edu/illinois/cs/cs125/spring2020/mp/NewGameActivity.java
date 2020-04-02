@@ -94,19 +94,16 @@ public final class NewGameActivity extends AppCompatActivity {
         });
 
         Button load = findViewById(R.id.loadPresetTargets);
-        load.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(final View view) {
+        load.setOnClickListener((final View view) ->
                 WebApi.startRequest(NewGameActivity.this, WebApi.API_BASE + "/presets", response -> {
                     AlertDialog.Builder builder = new AlertDialog.Builder(NewGameActivity.this);
                     View chunk = getLayoutInflater().inflate(R.layout.chunk_presets_list, null, false);
                     builder.setView(chunk);
                     RadioGroup group = chunk.findViewById(R.id.presetOptions);
-                    LinearLayout load = new LinearLayout(NewGameActivity.this);
-                    load.addView(chunk);
+                    LinearLayout loadNew = new LinearLayout(NewGameActivity.this);
+                    loadNew.addView(chunk);
                     RadioButton bt;
-                    AlertDialog dialog = builder.create();
-                    load.removeView(chunk);
+                    loadNew.removeView(chunk);
 
                     JsonArray presets = response.get("presets").getAsJsonArray();
                     int count = 0;
@@ -117,43 +114,37 @@ public final class NewGameActivity extends AppCompatActivity {
                         bt.setText(name);
                         bt.setTag(count);
                         group.addView(bt);
-                        System.out.println("name : " + name);
-                        System.out.println("tag : " + bt.getTag());
                         count++;
 
                     }
                     group.setOnCheckedChangeListener((final RadioGroup group1, final int checkedId) -> {
-                            RadioButton radioButton = (RadioButton) group.findViewById(checkedId);
+                            RadioButton radioButton = group.findViewById(checkedId);
                             mySelectedIndex = (int) radioButton.getTag();
-                            System.out.println("selected : " + mySelectedIndex);
                         }
                     );
-                    builder.setPositiveButton("LOAD", new DialogInterface.OnClickListener() {
-                        public void onClick(final DialogInterface dialog, final int id) {
+                    builder.setPositiveButton("LOAD", (final DialogInterface dialog, final int id) -> {
                             targetsMap.clear();
                             targets.clear();
                             int newCount = 0;
                             for (JsonElement j : presets) {
-                                    JsonObject preset = j.getAsJsonObject();
-                                    System.out.println("/" + preset.get("name").getAsString());
-                                    if (newCount == mySelectedIndex) {
-                                        JsonArray targetGroup = preset.get("targets").getAsJsonArray();
-                                        for (JsonElement a : targetGroup) {
-                                            JsonObject info = a.getAsJsonObject();
-                                            Marker marker = targetsMap.addMarker(new MarkerOptions().
-                                                    position(new LatLng(info.get("latitude").getAsDouble(),
-                                                            info.get("longitude").getAsDouble())));
-                                            targets.add(marker);
-                                        }
+                                JsonObject preset = j.getAsJsonObject();
+                                if (newCount == mySelectedIndex) {
+                                    JsonArray targetGroup = preset.get("targets").getAsJsonArray();
+                                    for (JsonElement a : targetGroup) {
+                                        JsonObject info = a.getAsJsonObject();
+                                        Marker marker = targetsMap.addMarker(new MarkerOptions().
+                                                position(new LatLng(info.get("latitude").getAsDouble(),
+                                                        info.get("longitude").getAsDouble())));
+                                        targets.add(marker);
                                     }
-                                    newCount++;
+                                }
+                                newCount++;
                             }
                         }
-                    }).setNegativeButton(R.string.cancel, new DialogInterface.OnClickListener() {
-                        public void onClick(final DialogInterface dialog, final int id) {
+                    ).setNegativeButton(R.string.cancel, (final DialogInterface dialog, final int id) -> {
                             // User cancelled the dialog
-                        }
-                    });
+                    }
+                    );
                     builder.show();
 
 
@@ -161,10 +152,8 @@ public final class NewGameActivity extends AppCompatActivity {
 
                 }, error -> {
 
-                    });
-
-            }
-        });
+                    })
+        );
 
         // Register button click handlers on the add-invitee and create-game buttons
         findViewById(R.id.addInvitee).setOnClickListener(unused -> addInvitee());

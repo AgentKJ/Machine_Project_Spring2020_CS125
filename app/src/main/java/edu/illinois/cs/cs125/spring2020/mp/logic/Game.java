@@ -131,6 +131,13 @@ public abstract class Game {
      * @return the TeamID code of the team with the highest score
      */
     public final int getWinningTeam() {
+        if (this instanceof TargetGame) {
+            TargetGame tg = (TargetGame) this;
+            return tg.gWT();
+        } else if (this instanceof AreaGame) {
+            AreaGame ag = (AreaGame) this;
+            return ag.gWT();
+        }
         // For you to implement
         return 0;
     }

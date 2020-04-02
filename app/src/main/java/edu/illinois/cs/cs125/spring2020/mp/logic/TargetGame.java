@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.neovisionaries.ws.client.WebSocket;
@@ -12,6 +13,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import edu.illinois.cs.cs125.spring2020.mp.R;
 
 /**
  * Represents a target mode game. Keeps track of target claims and players' paths between targets they captured.
@@ -26,6 +29,15 @@ public final class TargetGame extends Game {
 
     /** Map of player emails to their paths (visited target IDs). */
     private Map<String, List<String>> playerPaths = new HashMap<>();
+
+    /** Score of each team.*/
+    private int[] score = new int[TeamID.MAX_TEAM];
+
+    /** Counter for getTeamScore. */
+    private int count = 0;
+
+    /** To substitute magic number. */
+    private final int mn = 3;
 
     /**
      * Creates a game in target mode.
@@ -93,6 +105,15 @@ public final class TargetGame extends Game {
     public void locationUpdated(final LatLng location) {
         super.locationUpdated(location);
         // For each target within range of the player's current location, call tryClaimTarget
+        for (Map.Entry<String, Target> entry : targets.entrySet()) {
+            if (LatLngUtils.distance(entry.getValue().getPosition(), location) < proximityThreshold) {
+                tryClaimTarget(entry.getKey(), entry.getValue());
+            }
+            // The type names in the angle brackets should match the types in the map
+            // The current key is entry.getKey()
+            // The current value is entry.getValue()
+            // Do something with the key and value?
+        }
     }
 
     /**
@@ -122,7 +143,15 @@ public final class TargetGame extends Game {
 
             // You need to use that information to update the game state and map
             // First update the captured target's team
+            targets.get(targetId).setTeam(playerTeam);
+            score[playerTeam - 1]++;
             // Then call a helper function to update the player's path and add any needed line to the map
+            List path = playerPaths.get(playerEmail);
+            path.add(targetId);
+            if (path.size() > 1) {
+                addLineSegment(targets.get(path.get(path.size() - 2)).getPosition(),
+                        targets.get(path.get(path.size() - 1)).getPosition(), playerTeam);
+            }
 
             // Once that's done, inform the caller that we handled it
             return true;
@@ -141,13 +170,60 @@ public final class TargetGame extends Game {
      */
     private void tryClaimTarget(final String id, final Target target) {
         // Make sure the target isn't already captured - return if it's already taken
-        // See if the player has already captured a target - if yes:
-        //   See if the line between this target and the player's last capture intersects any existing line
-        //   (make sure to check for crossing with all players' paths)
-        //   If lines would cross, return
-        // Now that we know the target can be captured, update its owning team
-        // Use extendPlayerPath to update the game state and map
-        // Send a targetVisit update to the server
+        if (target.getTeam() != TeamID.OBSERVER) {
+            return;
+        } else {
+            for (Map.Entry<String, List<String>> entry : playerPaths.entrySet()) {
+                if (entry.getKey().equals(getEmail())) {
+                    List<String> path = entry.getValue();
+
+                    // See if the player has already captured a target - if yes:
+                    if (path.size() != 0) {
+                        LatLng last = targets.get(path.get(path.size() - 1)).getPosition();
+                        LatLng current = target.getPosition();
+                        // See if the line between this target and the player's last capture
+                        // intersects any existing line
+                        // (make sure to check for crossing with all players' paths)
+                        // If lines would cross, return
+                        for (Map.Entry<String, List<String>> each : playerPaths.entrySet()) {
+                            List<String> otherPath = each.getValue();
+                            if (otherPath != path) {
+                                if (otherPath.size() >= 2) {
+                                    for (int i = 0; i < otherPath.size() - 1; i++) {
+                                        LatLng first = targets.get(otherPath.get(i)).getPosition();
+                                        LatLng second = targets.get(otherPath.get(i + 1)).getPosition();
+                                        if (LineCrossDetector.linesCross(first, second, last, current)) {
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                            if (otherPath == path) {
+                                if (path.size() > mn) {
+                                    for (int i = 0; i < path.size() - mn; i++) {
+                                        LatLng first = targets.get(path.get(i)).getPosition();
+                                        LatLng second = targets.get(path.get(i + 1)).getPosition();
+                                        if (LineCrossDetector.linesCross(first, second, last, current)) {
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Now that we know the target can be captured, update its owning team
+            target.setTeam(getMyTeam());
+            score[getMyTeam() - 1]++;
+            // Use extendPlayerPath to update the game state and map
+            extendPlayerPath(getEmail(), id, getMyTeam());
+            // Send a targetVisit update to the server
+            JsonObject message = new JsonObject();
+            message.addProperty("type", "targetVisit");
+            message.addProperty("targetId", id);
+            sendMessage(message);
+        }
     }
 
     /**
@@ -194,6 +270,10 @@ public final class TargetGame extends Game {
         // The colors to use are provided by the team_colors integer array resource
         // (that's why Game instances need an Android Context object)
         // You may add the extra black border line if you like
+        final int lineThickness = 12;
+        int[] colors = getContext().getResources().getIntArray(R.array.team_colors);
+        PolylineOptions fill = new PolylineOptions().add(start, end).color(colors[team]).width(lineThickness).zIndex(1);
+        getMap().addPolyline(fill);
     }
 
     /**
@@ -205,7 +285,35 @@ public final class TargetGame extends Game {
      */
     @Override
     public int getTeamScore(final int teamId) {
+        if (count == 0) {
+            for (Map.Entry<String, Target> entry : targets.entrySet()) {
+                if (entry.getValue().getTeam() != 0) {
+                    score[entry.getValue().getTeam() - 1]++;
+                }
+            }
+            count++;
+        }
+
         // Find how many targets are currently owned by the specified team
+        return score[teamId - 1];
+    }
+
+    /**
+     * For getWinningTeam function in Game class.
+     * @return The winning team.
+     */
+    public int gWT() {
+        int result = score[0];
+        for (int i = 0; i < score.length; i++) {
+            if (score[i] > result) {
+                result = score[i];
+            }
+        }
+        for (int i = 0; i < score.length; i++) {
+            if (score[i] == result) {
+                return i + 1;
+            }
+        }
         return 0;
     }
 }

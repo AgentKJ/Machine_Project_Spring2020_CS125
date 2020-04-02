@@ -7,60 +7,42 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.location.Location;
 import androidx.annotation.NonNull;
-import androidx.annotation.VisibleForTesting;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
 
+import com.android.volley.Request;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
-import com.google.android.gms.maps.model.BitmapDescriptor;
-import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.Marker;
-import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.PolygonOptions;
-import com.google.android.gms.maps.model.PolylineOptions;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.gson.JsonObject;
+import com.neovisionaries.ws.client.WebSocket;
+import com.neovisionaries.ws.client.WebSocketCloseCode;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
-import edu.illinois.cs.cs125.spring2020.mp.logic.AreaDivider;
-import edu.illinois.cs.cs125.spring2020.mp.logic.DefaultTargets;
-import edu.illinois.cs.cs125.spring2020.mp.logic.LatLngUtils;
-import edu.illinois.cs.cs125.spring2020.mp.logic.TargetVisitChecker;
-
-
-/*
- * Welcome to the Machine Project app!
- *
- * There's a lot going on here. Don't worry about understanding it fully yet, but feel free to look
- * around to get a broad overview. This is an activity, i.e. a screen of UI. This activity has a
- * map showing the game. Once you're finished, it will detect the user's progress in the game and
- * update according to the game rules.
- *
- * First, complete the functions in TargetVisitChecker. You will need those to make the game work.
- * You'll know they're working properly when all tests - except testTargetModeGameplay which you'll
- * do in this file - pass.
- *
- * A bit below this big comment you'll find a lot of variable declarations. All of these can be
- * used from any function in this file. Some are used only by our provided code; others will be
- * used to implement gameplay.
- *
- * There are two functions here you need to modify. setUpMap needs to prepare the map with markers
- * for the targets. onLocationUpdate will be called when the player moves; it's responsible for
- * gameplay. There are comments with more details in those two functions.
- */
+import edu.illinois.cs.cs125.spring2020.mp.logic.AreaGame;
+import edu.illinois.cs.cs125.spring2020.mp.logic.Game;
+import edu.illinois.cs.cs125.spring2020.mp.logic.GameStateID;
+import edu.illinois.cs.cs125.spring2020.mp.logic.TargetGame;
+import edu.illinois.cs.cs125.spring2020.mp.logic.TeamID;
+import edu.illinois.cs.cs125.spring2020.mp.logic.WebApi;
 
 /**
  * Represents the game activity, where the user plays the game and sees its state.
@@ -73,18 +55,14 @@ public final class GameActivity extends AppCompatActivity {
     /** The radial location accuracy required to send a location update. */
     private static final float REQUIRED_LOCATION_ACCURACY = 28f;
 
-    /** How close the user has to be (in meters) to a target to capture it. */
-    private static int proximityThreshold;
-
-    /** Hue of the markers showing captured target locations.
-     * Note that this is ONLY the hue; markers don't allow specifying the RGB color like other map elements do. */
-    private static final float CAPTURED_MARKER_HUE = BitmapDescriptorFactory.HUE_GREEN;
-
-    /** Color of other map elements related to the player's progress (e.g. lines connecting captured targets). */
-    private static final int PLAYER_COLOR = Color.GREEN;
-
     /** The handler for location updates sent by the location listener service. */
     private BroadcastReceiver locationUpdateReceiver;
+
+    /** The current state of the game. */
+    private int gameState = GameStateID.PAUSED;
+
+    /** An object representing the game. */
+    private Game game;
 
     /** A reference to the map control. */
     private GoogleMap map;
@@ -92,40 +70,17 @@ public final class GameActivity extends AppCompatActivity {
     /** Whether the user's location has been found and used to center the map. */
     private boolean centeredMap;
 
+    /** The ID of the game being played. */
+    private String gameId;
+
+    /** The websocket used for gameplay events. */
+    private WebSocket webSocket;
+
     /** Whether permission has been granted to access the phone's exact location. */
     private boolean hasLocationPermission;
 
-    /** List of the markers that have been added by the placeMarker function. */
-    private List<Marker> markers = new ArrayList<>();
-
-    /** The predefined targets' latitudes. */
-    private double[] targetLats;
-
-    /** The predefined targets' longitudes. */
-    private double[] targetLngs;
-
-    /** The sequence of target indexes captured by the player (-1 if none). */
-    private int[] path;
-
-
-
-    /** Instance of AreaDivider. */
-    private AreaDivider manager;
-
-    /** The array to check if the cell has been visited. */
-    private boolean[][] visited;
-
-    /** The x index of the last cell. */
-    private int lastVisitedXIndex;
-
-    /** The y index of the last cell. */
-    private int lastVisitedYIndex;
-
     /**
      * Called by the Android system when the activity is to be set up.
-     * <p>
-     * Prepares the variables needed for gameplay. You do not need to modify this function
-     * in Checkpoint 0.
      * @param savedInstanceState information from the previously terminated instance (unused)
      */
     @Override
@@ -136,6 +91,13 @@ public final class GameActivity extends AppCompatActivity {
         // Load the UI from a layout resource
         setContentView(R.layout.activity_game);
         Log.v(TAG, "Created");
+
+        gameId = getIntent().getStringExtra("game");
+        connectWebSocket();
+        findViewById(R.id.reconnectWebsocket).setOnClickListener(unused -> connectWebSocket());
+        findViewById(R.id.pauseUnpauseGame).setOnClickListener(unused -> toggleGameRunning());
+        findViewById(R.id.endGame).setOnClickListener(unused -> endGame());
+
         // Start the process of getting a Google Maps object for the map
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.gameMap);
@@ -155,7 +117,7 @@ public final class GameActivity extends AppCompatActivity {
                 if (map != null && location != null && location.hasAccuracy()
                         && location.getAccuracy() < REQUIRED_LOCATION_ACCURACY) {
                     ensureMapCentered(location);
-                    onLocationUpdate(location.getLatitude(), location.getLongitude());
+                    onLocationUpdate(location);
                 }
             }
         };
@@ -167,7 +129,6 @@ public final class GameActivity extends AppCompatActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             // We don't have it yet - request it
-            // We don't have it yet - request it
             ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.ACCESS_FINE_LOCATION}, 0);
             Log.v(TAG, "Requested location permission");
         } else {
@@ -176,241 +137,6 @@ public final class GameActivity extends AppCompatActivity {
             hasLocationPermission = true;
             startLocationWatching();
         }
-
-        Intent intent = getIntent();
-        String mode = intent.getStringExtra("mode");
-        if (mode.equals("target")) {
-            proximityThreshold = intent.getIntExtra("proximityThreshold", 0);
-            // Load the predefined targets
-            targetLats = DefaultTargets.getLatitudes(this);
-            targetLngs = DefaultTargets.getLongitudes(this);
-            path = new int[targetLats.length];
-            Arrays.fill(path, -1); // No targets visited initially
-
-        } else if (mode.equals("area")) {
-            double setNorth = intent.getDoubleExtra("areaNorth", 0.0);
-            double setEast = intent.getDoubleExtra("areaEast", 0.0);
-            double setSouth = intent.getDoubleExtra("areaSouth", 0.0);
-            double setWest = intent.getDoubleExtra("areaWest", 0.0);
-            int setCellSize = intent.getIntExtra("cellSize", 0);
-            manager = new AreaDivider(setNorth, setEast, setSouth, setWest, setCellSize);
-            visited = new boolean[manager.getXCells()][manager.getYCells()];
-            for (int i = 0; i < manager.getXCells(); i++) {
-                for (int j = 0; j < manager.getYCells(); j++) {
-                    visited[i][j] = false;
-                }
-            }
-        }
-    }
-
-    /**
-     * Sets up the Google map.
-     * <p>
-     * You need to add some code to this function to add the objectives to the map.
-     */
-    @SuppressWarnings("MissingPermission")
-    private void setUpMap() {
-        // Enable the My Location blue dot if possible
-        if (hasLocationPermission) {
-            Log.v(TAG, "setUpMap enabled My Location");
-            map.setMyLocationEnabled(true);
-        }
-
-        // Remove some UI that gets in the way
-        map.getUiSettings().setIndoorLevelPickerEnabled(false);
-        map.getUiSettings().setMapToolbarEnabled(false);
-
-        Intent intent = getIntent();
-        String mode = intent.getStringExtra("mode");
-        if (mode.equals("area")) {
-            manager.renderGrid(map);
-        } else if (mode.equals("target")) {
-            // Use the provided placeMarker function to add a marker at every target's location
-            // HINT: onCreate initializes the relevant arrays (targetLats, targetLngs) for you
-            for (int count = 0; count < path.length; count++) {
-                placeMarker(targetLats[count], targetLngs[count]);
-            }
-        }
-    }
-
-    /**
-     * Called when a high-confidence location update is available.
-     * <p>
-     * You need to implement this function to make the game work.
-     * @param latitude the phone's current latitude
-     * @param longitude the phone's current longitude
-     */
-    @VisibleForTesting // Actually just visible for documentation - not called directly by test suites
-    public void onLocationUpdate(final double latitude, final double longitude) {
-        // This function is responsible for updating the game state and map according to the user's movements
-
-        Intent intent = getIntent();
-        String mode = intent.getStringExtra("mode");
-        if (mode.equals("target")) {
-            // HINT: To operate on the game state, use the three methods you implemented in TargetVisitChecker
-            // You can call them by prefixing their names with "TargetVisitChecker." e.g. TargetVisitChecker.visitTarget
-            // The arrays to operate on are targetLats, targetLngs, and path
-
-            int targetIndex = TargetVisitChecker.getVisitCandidate(targetLats, targetLngs, path,
-                    latitude, longitude, proximityThreshold);
-
-            if (TargetVisitChecker.checkSnakeRule(targetLats, targetLngs, path, targetIndex)) {
-                if (targetIndex != -1) {
-                    changeMarkerColor(targetLats[targetIndex], targetLngs[targetIndex], CAPTURED_MARKER_HUE);
-                    int toVisit = TargetVisitChecker.visitTarget(path, targetIndex);
-                    if (toVisit != 0) {
-                        LatLng first = new LatLng(targetLats[path[toVisit - 1]], targetLngs[path[toVisit - 1]]);
-                        LatLng second = new LatLng(targetLats[path[toVisit]], targetLngs[path[toVisit]]);
-                        addLine(first, second, PLAYER_COLOR);
-                    }
-                }
-            }
-            // When the player gets within the PROXIMITY_THRESHOLD of a target, it should be captured and turned green
-            // Sequential captures should create green connecting lines on the map
-            // HINT: Use the provided changeMarkerColor and addLine functions to manipulate the map
-            // HINT: Use the provided color constants near the top of this file as arguments to those functions
-        } else if (mode.equals("area")) {
-            int xIndex = manager.getXIndex(new LatLng(latitude, longitude));
-            int yIndex = manager.getYIndex(new LatLng(latitude, longitude));
-            double north = intent.getDoubleExtra("areaNorth", 0);
-            double south = intent.getDoubleExtra("areaSouth", 0);
-            double east = intent.getDoubleExtra("areaEast", 0);
-            double west = intent.getDoubleExtra("areaWest", 0);
-            if (latitude <= north && latitude >= south && longitude >= west && longitude <= east) {
-                double xLength = (east - west) / manager.getXCells();
-                double yLength = (north - south) / manager.getYCells();
-                double cellWest = west + xLength * xIndex;
-                double cellEast = west + xLength * (xIndex + 1);
-                double cellSouth = south + yLength * yIndex;
-                double cellNorth = south + yLength * (yIndex + 1);
-                // Check if the cell has been visited.
-                if (!visited[xIndex][yIndex]) {
-                    // Check if it is the first cell to be visit.
-                    if (checkFirst()) {
-                        PolygonOptions fill = new PolygonOptions().add(new LatLng(cellSouth, cellWest),
-                                new LatLng(cellNorth, cellWest),
-                                new LatLng(cellNorth, cellEast),
-                                new LatLng(cellSouth, cellEast),
-                                new LatLng(cellSouth, cellWest)).fillColor(PLAYER_COLOR);
-                        map.addPolygon(fill);
-                        visited[xIndex][yIndex] = true;
-                        lastVisitedXIndex = xIndex;
-                        lastVisitedYIndex = yIndex;
-                    } else if ((checkNeighbor(xIndex, yIndex, lastVisitedXIndex, lastVisitedYIndex))) {
-                        PolygonOptions fill = new PolygonOptions().add(new LatLng(cellSouth, cellWest),
-                                new LatLng(cellNorth, cellWest),
-                                new LatLng(cellNorth, cellEast),
-                                new LatLng(cellSouth, cellEast),
-                                new LatLng(cellSouth, cellWest)).fillColor(PLAYER_COLOR);
-                        map.addPolygon(fill);
-                        visited[xIndex][yIndex] = true;
-                        lastVisitedXIndex = xIndex;
-                        lastVisitedYIndex = yIndex;
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Check if any cell has been visited.
-     * @return False if no cell has been captured. True otherwise.
-     */
-    private boolean checkFirst() {
-        //System.out.println("x = " + x + ", y = " + y);
-        //System.out.println("x cells : " + manager.getXCells() + ", y cells : " + manager.getYCells());
-        for (int i = 0; i < manager.getXCells(); i++) {
-            for (int j = 0; j < manager.getYCells(); j++) {
-                if (visited[i][j]) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check if any of its surrounding cells has been visited.
-     * @param x The x index of the current cell.
-     * @param y The y index of the current cell.
-     * @param lastX The x index of the last visited cell.
-     * @param lastY The y index of the last visited cell.
-     * @return True if the new cell shares one side with the most recently captured cell.
-     */
-    private boolean checkNeighbor(final int x, final int y, final int lastX, final int lastY) {
-        return (x != manager.getXCells() - 1 && lastX == x + 1 && lastY == y)
-                || (x != 0 && lastX == x - 1 && lastY == y)
-                || (y != manager.getYCells() - 1 && lastY == y + 1 && lastX == x)
-                || (y != 0 && lastY == y - 1 && lastX == x);
-    }
-
-
-
-    /**
-     * Places a marker on the map at the specified coordinates.
-     * @param latitude the marker's latitude
-     * @param longitude the marker's longitude
-     */
-    @VisibleForTesting // For documentation
-    public void placeMarker(final double latitude, final double longitude) {
-        // Convert the loose coordinates to a Google Maps LatLng object
-        LatLng position = new LatLng(latitude, longitude);
-
-        // Create a MarkerOptions object to specify where we want the marker
-        MarkerOptions options = new MarkerOptions().position(position);
-
-        // Add it to the map - Google Maps gives us the created Marker
-        Marker marker = map.addMarker(options);
-
-        // Keep track of the new marker so changeMarkerColor can adjust it later
-        markers.add(marker);
-    }
-
-    /**
-     * Adds a colored line to the Google map.
-     * @param start LatLng of one endpoint of the line
-     * @param end LatLng of the other endpoint of the line
-     * @param color the color to fill the line with
-     */
-    @VisibleForTesting
-    public void addLine(final LatLng start, final LatLng end, final int color) {
-        // Configure and add a colored line
-        final int lineThickness = 12;
-        PolylineOptions fill = new PolylineOptions().add(start, end).color(color).width(lineThickness).zIndex(1);
-        map.addPolyline(fill);
-
-        // Polylines don't have a way to set borders, so we create a wider black line under the colored one to fake it
-        final int borderThickness = 3;
-        PolylineOptions border = new PolylineOptions().add(start, end).width(lineThickness + borderThickness);
-        map.addPolyline(border);
-    }
-
-    /**
-     * Changes the hue of the marker at the specified position.
-     * The marker should have been previously added by placeMarker.
-     * @param latitude the marker's latitude
-     * @param longitude the marker's longitude
-     * @param hue the new hue, e.g. a constant from BitmapDescriptorFactory
-     */
-    @VisibleForTesting
-    public void changeMarkerColor(final double latitude, final double longitude, final float hue) {
-        // Convert the loose coordinates to a Google Maps LatLng object
-        LatLng position = new LatLng(latitude, longitude);
-
-        // Try to find the existing marker (one with the same coordinates)
-        for (Marker marker : markers) {
-            if (LatLngUtils.same(position, marker.getPosition())) {
-                // Create a new icon with the desired hue
-                BitmapDescriptor icon = BitmapDescriptorFactory.defaultMarker(hue);
-
-                // Change the marker's icon
-                marker.setIcon(icon);
-                return;
-            }
-        }
-
-        // Didn't find the existing marker
-        Log.w(TAG, "No existing marker near " + latitude + ", " + longitude);
     }
 
     /**
@@ -424,6 +150,9 @@ public final class GameActivity extends AppCompatActivity {
         stopLocationWatching();
         // Unregister this activity's location listener
         LocalBroadcastManager.getInstance(this).unregisterReceiver(locationUpdateReceiver);
+        if (webSocket != null) {
+            webSocket.disconnect(WebSocketCloseCode.AWAY);
+        }
         Log.v(TAG, "Destroyed");
     }
 
@@ -454,6 +183,25 @@ public final class GameActivity extends AppCompatActivity {
     }
 
     /**
+     * Sets up the Google map.
+     */
+    @SuppressWarnings("MissingPermission")
+    private void setUpMap() {
+        // Enable the My Location blue dot if possible
+        if (hasLocationPermission) {
+            Log.v(TAG, "setUpMap enabled My Location");
+            map.setMyLocationEnabled(true);
+        }
+
+        // Remove some UI that gets in the way
+        map.getUiSettings().setIndoorLevelPickerEnabled(false);
+        map.getUiSettings().setMapToolbarEnabled(false);
+
+        // This function is no longer responsible for rendering game-specific elements
+        // That's taken care of by the Game subclasses
+    }
+
+    /**
      * Centers the map on the user's location if the map hasn't been centered yet.
      * @param location the current location
      */
@@ -463,6 +211,37 @@ public final class GameActivity extends AppCompatActivity {
             map.moveCamera(CameraUpdateFactory.newLatLngZoom(
                     new LatLng(location.getLatitude(), location.getLongitude()), defaultMapZoom));
             centeredMap = true;
+            if (game != null && game.getMyTeam() == TeamID.OBSERVER) {
+                stopLocationWatching();
+            }
+        }
+    }
+
+    /**
+     * Called when a high-confidence location update is available.
+     * @param location the phone's current location, not null
+     */
+    private void onLocationUpdate(final Location location) {
+        // If the game object or websocket haven't been set yet, return (nothing can be done)
+        // If the user is only an observer in the game, return (their movements don't matter)
+        if (game == null || webSocket == null) {
+            return;
+        }
+        if (game.getMyTeam() == TeamID.OBSERVER) {
+            return;
+        }
+        // Notify the server of the movement - start by creating a Gson JSON object representing the message
+        JsonObject locUpdate = new JsonObject();
+        // You need to fill the object out with the properties of a location update
+        locUpdate.addProperty("type", "locationUpdate");
+        locUpdate.addProperty("latitude", location.getLatitude());
+        locUpdate.addProperty("longitude", location.getLongitude());
+        // Once the object is ready, convert it to a JSON string and send it over the websocket
+        webSocket.sendText(locUpdate.toString());
+
+        // Call the logic that updates gameplay based on the user's movements
+        if (gameState == GameStateID.RUNNING) {
+            game.locationUpdated(new LatLng(location.getLatitude(), location.getLongitude()));
         }
     }
 
@@ -488,6 +267,146 @@ public final class GameActivity extends AppCompatActivity {
     private void stopLocationWatching() {
         stopService(new Intent(this, LocationListenerService.class));
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    /**
+     * Called when a message is received from the server.
+     * <p>
+     * You should fill out this function to react to game data, gameplay events, and game state changes.
+     * @param message the parsed JSON from the server
+     */
+    private void receivedData(final JsonObject message) {
+        String type = message.get("type").getAsString();
+        switch (type) {
+            case "full":
+                // The full update contains the entire current state of the game
+                String myEmail = FirebaseAuth.getInstance().getCurrentUser().getEmail();
+                if (message.get("owner").getAsString().equals(myEmail)) {
+                    findViewById(R.id.gameOwnerControls).setVisibility(View.VISIBLE);
+                }
+
+                // You need to fill this in to load the game progress into the game variable
+                // Initialize the game instance variable with an instance of the Game subclass appropriate for the mode
+                String mode = message.get("mode").getAsString();
+                if (mode.equals("target")) {
+                    game = new TargetGame(myEmail, map, webSocket, message, this);
+                } else if (mode.equals("area")) {
+                    game = new AreaGame(myEmail, map, webSocket, message, this);
+                }
+
+                if (game != null) {
+                    if (game.getMyTeam() == TeamID.OBSERVER && centeredMap) {
+                        // Observers don't need to have their location tracked
+                        stopLocationWatching();
+                    }
+                    // Update the game state label
+                    updateGameState(message.get("state").getAsInt());
+                    // Update the scores label
+                    updateScores();
+                }
+                break;
+            case "gameState":
+                int newState = message.get("state").getAsInt();
+                if (newState != GameStateID.ENDED) {
+                    // Since the game isn't over yet, update the scores label
+                    updateGameState(newState);
+                }
+                // Near the end of the checkpoint, add an else branch to handle the end of the game
+                break;
+            default:
+                // Fill this in to forward the event to the Game instance
+                game.handleMessage(message);
+                // Then refresh the scores label in case someone captured an objective
+                updateScores();
+        }
+    }
+
+    /**
+     * Attempts to connect to the server via websocket.
+     */
+    private void connectWebSocket() {
+        findViewById(R.id.reconnectWebsocket).setVisibility(View.GONE);
+        findViewById(R.id.gameOwnerControls).setVisibility(View.GONE);
+        TextView gameStateLabel = findViewById(R.id.gameState);
+        gameStateLabel.setText(R.string.connecting);
+        webSocket = null;
+        WebApi.connectWebSocket(WebApi.WEBSOCKET_BASE + "/games/" + gameId + "/play",
+            data -> runOnUiThread(() -> receivedData(data)), ws -> webSocket = ws,
+            () -> runOnUiThread(this::connectWebSocket), error -> runOnUiThread(() -> {
+                findViewById(R.id.reconnectWebsocket).setVisibility(View.VISIBLE);
+                gameStateLabel.setText(R.string.connection_lost);
+            }));
+    }
+
+    /**
+     * Updates UI and listeners according to the state of the ongoing game.
+     * @param newState the game's current state (PAUSED or RUNNING)
+     */
+    private void updateGameState(final int newState) {
+        gameState = newState;
+        TextView gameStateLabel = findViewById(R.id.gameState);
+        Button pausePlayButton = findViewById(R.id.pauseUnpauseGame);
+        if (newState == GameStateID.PAUSED) {
+            gameStateLabel.setText(R.string.paused);
+            pausePlayButton.setText(R.string.resume);
+        } else if (newState == GameStateID.RUNNING) {
+            gameStateLabel.setText(R.string.running);
+            pausePlayButton.setText(R.string.pause);
+        }
+    }
+
+    /**
+     * Prompts the user (who is the game owner) whether to end the game.
+     */
+    private void endGame() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setMessage(R.string.end_game_confirmation);
+        builder.setNegativeButton(R.string.cancel, null);
+        builder.setPositiveButton(R.string.end, (unused1, unused2) -> gameLifecycleControl("end"));
+        builder.create().show();
+    }
+
+    /**
+     * Called when the user (who is the game owner) presses the Pause/Resume button.
+     */
+    private void toggleGameRunning() {
+        if (gameState == GameStateID.PAUSED) {
+            gameLifecycleControl("resume");
+        } else {
+            gameLifecycleControl("pause");
+        }
+    }
+
+    /**
+     * Makes an API call to control the lifecycle of the game.
+     * @param action the game sub-endpoint: "resume", "pause", or "end"
+     */
+    private void gameLifecycleControl(final String action) {
+        WebApi.startRequest(this, WebApi.API_BASE + "/games/" + gameId + "/" + action, Request.Method.POST, null,
+            unused -> { }, error -> Toast.makeText(this, R.string.connection_failed, Toast.LENGTH_LONG).show());
+    }
+
+    /**
+     * Updates the scores label according to the current game information.
+     */
+    private void updateScores() {
+        if (game == null) {
+            return;
+        }
+        String[] teamNames = getResources().getStringArray(R.array.team_choices);
+        TextView scoresLabel = findViewById(R.id.gameScores);
+        List<String> teamScores = new ArrayList<>();
+        for (int t = TeamID.MIN_TEAM; t <= TeamID.MAX_TEAM; t++) {
+            int score = game.getTeamScore(t);
+            if (score > 0) {
+                teamScores.add(teamNames[t] + ": " + score);
+            }
+        }
+        if (teamScores.size() == 0) {
+            scoresLabel.setText(R.string.no_scores);
+        } else {
+            scoresLabel.setText(TextUtils.join(", ", teamScores.toArray()));
+        }
     }
 
 }
